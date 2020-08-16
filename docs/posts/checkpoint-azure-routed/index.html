@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <title>Route-based VPN between Check Point on-premise and Azure CloudGuard IaaS HA // iampredrag.cloud</title>
+    <meta charset="utf-8" />
+    <meta name="generator" content="Hugo 0.68.3" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="author" content="John Doe" />
+    <meta name="description" content="" />
+    <link rel="stylesheet" href="http://iampredrag.cloud/css/main.min.88e7083eff65effb7485b6e6f38d10afbec25093a6fac42d734ce9024d3defbd.css" />
+
+    
+    <meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="Route-based VPN between Check Point on-premise and Azure CloudGuard IaaS HA"/>
+<meta name="twitter:description" content="There are many references for configuring route-based tunnels on Check Point and Microsoft web sites and forums but every one of them is lacking some sort of information or clear guidance on what exactly needs to be done. To better understand, current limitation of Check Point is that you need to use CloudGuard IaaS High Availability [4] in order to use IPSEC VPN’s.
+First, one important fact to know is that the Azure Virtual Network will fragment the packets at 1,400 bytes, irrelevant of the guest operating NIC configuration [1]."/>
+
+    <meta property="og:title" content="Route-based VPN between Check Point on-premise and Azure CloudGuard IaaS HA" />
+<meta property="og:description" content="There are many references for configuring route-based tunnels on Check Point and Microsoft web sites and forums but every one of them is lacking some sort of information or clear guidance on what exactly needs to be done. To better understand, current limitation of Check Point is that you need to use CloudGuard IaaS High Availability [4] in order to use IPSEC VPN’s.
+First, one important fact to know is that the Azure Virtual Network will fragment the packets at 1,400 bytes, irrelevant of the guest operating NIC configuration [1]." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="http://iampredrag.cloud/posts/checkpoint-azure-routed/" />
+<meta property="article:published_time" content="2020-07-24T16:57:08+03:00" />
+<meta property="article:modified_time" content="2020-07-24T16:57:08+03:00" />
+
+
+  </head>
+  <body>
+    <header class="app-header">
+      <a href="http://iampredrag.cloud/"><img class="app-header-avatar" src="/avatar.jpg" alt="John Doe" /></a>
+      <h1>iampredrag.cloud</h1>
+      <p>I am a security and cloud architect. I spend most of my time writing code, debugging and breaking stuff. Views and opinions are my own.</p>
+      <div class="app-header-social">
+        
+      </div>
+    </header>
+    <main class="app-container">
+      
+  <article class="post">
+    <header class="post-header">
+      <h1 class ="post-title">Route-based VPN between Check Point on-premise and Azure CloudGuard IaaS HA</h1>
+      <div class="post-meta">
+        <div>
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-calendar">
+  <title>calendar</title>
+  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>
+</svg>
+          Jul 24, 2020
+        </div>
+        <div>
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-clock">
+  <title>clock</title>
+  <circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>
+</svg>
+          3 min read
+        </div></div>
+    </header>
+    <div class="post-content">
+      <p>There are many references for configuring route-based tunnels on Check Point and Microsoft web sites and forums but every one of them is lacking some sort of information or clear guidance on what exactly needs to be done. To better understand, current limitation of Check Point is that you need to use CloudGuard IaaS High Availability [4] in order to use IPSEC VPN’s.</p>
+<p>First, one important fact to know is that the Azure Virtual Network will fragment the packets at 1,400 bytes, irrelevant of the guest operating NIC configuration [1]. What is required for you to know here is that you should not modify the guest operating systems eth0 and eth1 interfaces in Azure. In essence, <strong>leave these interfaces with the default MTU of 1,500 bytes.</strong></p>
+<p>So let’s have a look at the Check Point documentation for this specific scenario. First in this example [2] we can see the setup between Microsoft Azure and On-Premise Check Point appliance. There are references to the [1] and [3] document which talk about the MTU and MSS clamping. Check Point in their KB article SK98074 [5] explains how MTU and MSS clamping are configured. Based on Microsoft recommendations we can see that we need to take care of two things, we need to ensure that MTU is lowered to 1400 on the tunnel interface, and the clamping needs to be set to 1350. One item that was being unknown for me, if I apply this configuration on the on-premise gateway that has multiple interfaces in different networks, will it apply the MSS clamping on all interfaces or just the VTI interfaces. From my understanding on the topic the MSS clamping will be applied on all tunnel interfaces [6] but you need to to ensure that specific parameters are set.</p>
+<p>One important fact is to ensure that <strong><code>sim_ipsec_dont_fragment</code></strong> parameter [5] is set to 1 by using the <strong><code>fw ctl</code></strong> command shown below.</p>
+<p><code>fw ctl get int sim_ipsec_dont_fragment -a</code></p>
+<p>The other two parameters that need to be checked are <strong><code>fw_clamp_vpn_mss</code></strong> and <strong><code>sim_clamp_vpn_mss</code></strong> [7] and this can be checked with two separate commands shown below.</p>
+<p><code>fw ctl get int sim_clamp_vpn_mss -a</code></p>
+<p><code>fw ctl get int fw_clamp_vpn_mss -a</code></p>
+<p>If any of these values are set to 0 they must be changed to 1. So the summary of changes on the Check Point firewalls (both on-premises and cloud) are as follows:</p>
+<ul>
+<li>Leave the eth0 and eth1 interface with their default MTU.</li>
+<li>Setup the VTI (VPN) interface with MTU 1400.</li>
+<li>Set the MSS clamping parameter mss_value to 1350 using GuiDBEdit for the appropriate VTI interface.</li>
+<li>Check the clamp vpn mss settings for FW and SIM and adjust if required.</li>
+</ul>
+<p>[1] <a href="https://docs.microsoft.com/en-us/azure/virtual-network/virtual-network-tcpip-performance-tuning">https://docs.microsoft.com/en-us/azure/virtual-network/virtual-network-tcpip-performance-tuning</a></p>
+<p>[2] <a href="https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk101275">https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk101275</a></p>
+<p>[3] <a href="https://docs.microsoft.com/en-gb/azure/vpn-gateway/vpn-gateway-about-vpn-devices">https://docs.microsoft.com/en-gb/azure/vpn-gateway/vpn-gateway-about-vpn-devices</a></p>
+<p>[4] <a href="https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk110194">https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk110194</a></p>
+<p>[5] <a href="https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk98074">https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk98074</a></p>
+<p>[6] <a href="http://www.maxpowerfirewalls.com/buy-now.html">http://www.maxpowerfirewalls.com/buy-now.html</a></p>
+<p>[7] <a href="https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk101219">https://supportcenter.checkpoint.com/supportcenter/portal?eventSubmit_doGoviewsolutiondetails=&amp;solutionid=sk101219</a></p>
+
+    </div>
+    <div class="post-footer">
+      
+    </div>
+  </article>
+
+    </main>
+  </body>
+</html>
